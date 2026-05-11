@@ -8,6 +8,7 @@ import seaborn as sns
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import RandomizedSearchCV, TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler, label_binarize
 from sklearn.metrics import (
     accuracy_score,
@@ -57,50 +58,62 @@ def prepare_data(df_features, train_ratio=0.8):
 # Entraînement
 # ------------------------------------------------------------------
 
-def train_models(X_train, y_train):
-    """Entraîne les trois modèles et retourne un dict {nom: modèle}."""
-    models = {
-        "Logistic Regression": LogisticRegression(max_iter=1000, random_state=42),
-        # Random Forest : paramètres anti-overfitting
-        #   max_depth=8        → arbres bornés (défaut=None = infini → mémorisation)
-        #   min_samples_leaf=15 → feuille = au moins 15 matchs
-        #   min_samples_split=30→ au moins 30 matchs pour créer un nœud
-        "Random Forest": RandomForestClassifier(
-            n_estimators=300,
-            max_depth=8,
-            min_samples_leaf=15,
-            min_samples_split=30,
-            random_state=42,
-        ),
-        # XGBoost : paramètres anti-overfitting
-        #   max_depth=3      → arbres peu profonds, moins de mémorisation
-        #   learning_rate=0.05 → apprentissage lent, meilleure généralisation
-        #   subsample=0.8    → 80% des matchs tirés au sort par arbre
-        #   colsample_bytree=0.8 → 80% des features tirées par arbre
-        #   min_child_weight=5   → feuille = au moins 5 matchs
-        #   gamma=0.1        → gain minimal requis pour créer un split
-        #   reg_alpha=0.5    → régularisation L1
-        #   reg_lambda=2.0   → régularisation L2 (pénalise les poids forts)
-        "XGBoost": XGBClassifier(
-            n_estimators=500,
-            learning_rate=0.05,
-            max_depth=3,
-            subsample=0.8,
-            colsample_bytree=0.8,
-            min_child_weight=5,
-            gamma=0.1,
-            reg_alpha=0.5,
-            reg_lambda=2.0,
-            random_state=42,
-            eval_metric="mlogloss",
-        ),
+def tune_xgboost(X_train, y_train):
+    """
+    Recherche les meilleurs hyperparamètres XGBoost via RandomizedSearchCV
+    avec validation croisée temporelle (TimeSeriesSplit).
+    Évite tout data leakage : les folds de validation sont toujours postérieurs au train.
+    """
+    param_dist = {
+        "n_estimators":      [300, 500, 700],
+        "max_depth":         [2, 3, 4],
+        "learning_rate":     [0.01, 0.03, 0.05, 0.08],
+        "subsample":         [0.65, 0.75, 0.85],
+        "colsample_bytree":  [0.6, 0.7, 0.8],
+        "min_child_weight":  [3, 5, 8, 12],
+        "gamma":             [0, 0.05, 0.1, 0.2],
+        "reg_alpha":         [0.1, 0.3, 0.5, 1.0],
+        "reg_lambda":        [1.0, 2.0, 3.0, 5.0],
     }
 
+    # TimeSeriesSplit : 5 fenêtres temporelles croissantes, pas de mélange passé/futur
+    tscv = TimeSeriesSplit(n_splits=5)
+
+    search = RandomizedSearchCV(
+        XGBClassifier(random_state=42, eval_metric="mlogloss"),
+        param_distributions=param_dist,
+        n_iter=40,          # 40 combinaisons aléatoires × 5 folds = 200 fits
+        cv=tscv,
+        scoring="accuracy",
+        n_jobs=-1,
+        random_state=42,
+        verbose=1,
+    )
+    search.fit(X_train, y_train)
+    print(f"  Meilleurs paramètres : {search.best_params_}")
+    print(f"  Score CV moyen       : {search.best_score_*100:.2f}%")
+    return search.best_estimator_
+
+
+def train_models(X_train, y_train):
+    """Entraîne les trois modèles et retourne un dict {nom: modèle}."""
+    lr = LogisticRegression(max_iter=1000, random_state=42)
+    rf = RandomForestClassifier(
+        n_estimators=300,
+        max_depth=8,
+        min_samples_leaf=15,
+        min_samples_split=30,
+        random_state=42,
+    )
+
     trained = {}
-    for name, model in models.items():
+    for name, model in [("Logistic Regression", lr), ("Random Forest", rf)]:
         print(f"  Entraînement : {name}...")
         model.fit(X_train, y_train)
         trained[name] = model
+
+    print("  Recherche hyperparamètres XGBoost (RandomizedSearchCV)...")
+    trained["XGBoost"] = tune_xgboost(X_train, y_train)
 
     return trained
 
