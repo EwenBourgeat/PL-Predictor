@@ -62,7 +62,28 @@ def train_models(X_train, y_train):
     models = {
         "Logistic Regression": LogisticRegression(max_iter=1000, random_state=42),
         "Random Forest": RandomForestClassifier(n_estimators=200, random_state=42),
-        "XGBoost": XGBClassifier(n_estimators=200, random_state=42, eval_metric="mlogloss"),
+        # XGBoost : paramètres anti-overfitting
+        #   max_depth=3      → arbres peu profonds, moins de mémorisation
+        #   learning_rate=0.05 → apprentissage lent, meilleure généralisation
+        #   subsample=0.8    → 80% des matchs tirés au sort par arbre
+        #   colsample_bytree=0.8 → 80% des features tirées par arbre
+        #   min_child_weight=5   → feuille = au moins 5 matchs
+        #   gamma=0.1        → gain minimal requis pour créer un split
+        #   reg_alpha=0.5    → régularisation L1
+        #   reg_lambda=2.0   → régularisation L2 (pénalise les poids forts)
+        "XGBoost": XGBClassifier(
+            n_estimators=500,
+            learning_rate=0.05,
+            max_depth=3,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            min_child_weight=5,
+            gamma=0.1,
+            reg_alpha=0.5,
+            reg_lambda=2.0,
+            random_state=42,
+            eval_metric="mlogloss",
+        ),
     }
 
     trained = {}

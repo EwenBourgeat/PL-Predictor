@@ -532,7 +532,7 @@ with tab_data:
                 unsafe_allow_html=True,
             )
 
-    # --- Accuracy par saison ---
+    # --- Tableau accuracy par saison ---
     st.markdown("<hr>", unsafe_allow_html=True)
     st.markdown(
         "**Accuracy par saison**  "
@@ -540,6 +540,56 @@ with tab_data:
         '<span class="tag-test">Test</span>',
         unsafe_allow_html=True,
     )
+
+    seasons_list = sorted(df_feat["Season"].unique())
+    table_rows   = []
+    for season in seasons_list:
+        mask  = df_feat["Season"] == season
+        y_s   = df_feat.loc[mask, "target"].astype(int).values
+        pct_test = (df_feat.loc[mask, "split"] == "Test").mean()
+        if pct_test == 0:
+            split_label = "Train"
+        elif pct_test >= 0.9:
+            split_label = "Test"
+        else:
+            split_label = "Mixte"
+        row = {"Saison": season, "Split": split_label}
+        for name in preds:
+            acc = accuracy_score(y_s, preds[name][mask])
+            row[name] = round(acc * 100, 1)
+        table_rows.append(row)
+
+    df_table = pd.DataFrame(table_rows).set_index("Saison")
+
+    def color_split(val):
+        if val == "Train":
+            return "background-color:#dbeafe; color:#1e40af; font-weight:600"
+        if val == "Test":
+            return "background-color:#dcfce7; color:#166534; font-weight:600"
+        return "background-color:#fef9c3; color:#854d0e; font-weight:600"
+
+    def color_acc(val):
+        if not isinstance(val, float):
+            return ""
+        if val >= 60:
+            return "color:#166534; font-weight:600"
+        if val >= 50:
+            return "color:#1a1a2e"
+        return "color:#dc2626"
+
+    styled = (
+        df_table.style
+        .applymap(color_split, subset=["Split"])
+        .applymap(color_acc, subset=list(preds.keys()))
+        .format({name: "{:.1f}%" for name in preds.keys()})
+    )
+    st.dataframe(styled, use_container_width=True)
+    st.caption(
+        "Vert fonce = accuracy >= 60%  ·  Noir = >= 50%  ·  Rouge = < 50%  "
+        "·  Les saisons Train ont un biais (modele a appris sur ces donnees)"
+    )
+
+    # Graphique accuracy par saison
     fig_acc = make_accuracy_by_season(df_feat, preds)
     st.pyplot(fig_acc, use_container_width=True)
     plt.close(fig_acc)
