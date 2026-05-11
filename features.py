@@ -10,14 +10,32 @@ from collections import defaultdict
 
 # Colonnes de features partagées entre train.py et app.py
 FEATURE_COLS = [
+    # Forme glissante — fenêtre 5 matchs
     "home_form",
     "away_form",
+    # Forme glissante — fenêtre 3 matchs (momentum court terme)
+    "home_form_3",
+    "away_form_3",
+    # Taux de victoire domicile/extérieur dans la saison en cours
     "home_win_rate",
     "away_win_rate",
+    # Buts marqués et encaissés (moyenne 5 derniers matchs)
     "home_goals_scored_avg",
     "away_goals_scored_avg",
     "home_goals_conceded_avg",
     "away_goals_conceded_avg",
+    # Différence de buts moyenne (5 derniers matchs)
+    "home_goal_diff_avg",
+    "away_goal_diff_avg",
+    # Points cumulés dans la saison (proxy du classement)
+    "home_season_pts",
+    "away_season_pts",
+    # Force relative : écart de forme entre les deux équipes
+    "strength_diff",
+    # Confrontation attaque vs défense adverse (proxy expected goals)
+    "attack_vs_defense_h",
+    "attack_vs_defense_a",
+    # Head-to-head (5 dernières confrontations directes)
     "h2h_home_wins",
     "h2h_draws",
     "h2h_away_wins",
@@ -41,7 +59,7 @@ def _calc_goals_avg(history, n=5):
     recent = history[-n:]
     if not recent:
         return 0.0, 0.0
-    scored = sum(m["scored"] for m in recent)
+    scored   = sum(m["scored"]   for m in recent)
     conceded = sum(m["conceded"] for m in recent)
     return scored / len(recent), conceded / len(recent)
 
@@ -51,8 +69,7 @@ def _calc_home_win_rate(history, season):
     season_home = [m for m in history if m["season"] == season and m["is_home"]]
     if not season_home:
         return 0.0
-    wins = sum(1 for m in season_home if m["result"] == "W")
-    return wins / len(season_home)
+    return sum(1 for m in season_home if m["result"] == "W") / len(season_home)
 
 
 def _calc_away_win_rate(history, season):
@@ -60,8 +77,12 @@ def _calc_away_win_rate(history, season):
     season_away = [m for m in history if m["season"] == season and not m["is_home"]]
     if not season_away:
         return 0.0
-    wins = sum(1 for m in season_away if m["result"] == "W")
-    return wins / len(season_away)
+    return sum(1 for m in season_away if m["result"] == "W") / len(season_away)
+
+
+def _calc_season_pts(history, season):
+    """Points cumulés dans la saison en cours (proxy du classement)."""
+    return float(sum(m["pts"] for m in history if m["season"] == season))
 
 
 def _calc_h2h(home_hist, away_team, n=5):
@@ -73,31 +94,50 @@ def _calc_h2h(home_hist, away_team, n=5):
     if not h2h:
         return 0, 0, 0
     hw = sum(1 for m in h2h if m["result"] == "W")
-    d = sum(1 for m in h2h if m["result"] == "D")
+    d  = sum(1 for m in h2h if m["result"] == "D")
     aw = sum(1 for m in h2h if m["result"] == "L")
     return hw, d, aw
 
 
 def _extract_features(home_team, away_team, season, team_history):
-    """Construit le vecteur de features depuis les historiques actuels."""
+    """Construit le vecteur de 20 features depuis les historiques actuels."""
     home_hist = team_history[home_team]
     away_hist = team_history[away_team]
 
-    home_scored, home_conceded = _calc_goals_avg(home_hist)
-    away_scored, away_conceded = _calc_goals_avg(away_hist)
+    home_form   = _calc_form(home_hist, n=5)
+    away_form   = _calc_form(away_hist, n=5)
+    home_form_3 = _calc_form(home_hist, n=3)
+    away_form_3 = _calc_form(away_hist, n=3)
+
+    home_scored, home_conceded = _calc_goals_avg(home_hist, n=5)
+    away_scored, away_conceded = _calc_goals_avg(away_hist, n=5)
+
     h2h_hw, h2h_d, h2h_aw = _calc_h2h(home_hist, away_team)
 
     return {
-        "home_form": _calc_form(home_hist),
-        "away_form": _calc_form(away_hist),
-        "home_win_rate": _calc_home_win_rate(home_hist, season),
-        "away_win_rate": _calc_away_win_rate(away_hist, season),
-        "home_goals_scored_avg": home_scored,
-        "away_goals_scored_avg": away_scored,
+        "home_form":   home_form,
+        "away_form":   away_form,
+        "home_form_3": home_form_3,
+        "away_form_3": away_form_3,
+        "home_win_rate":  _calc_home_win_rate(home_hist, season),
+        "away_win_rate":  _calc_away_win_rate(away_hist, season),
+        "home_goals_scored_avg":   home_scored,
+        "away_goals_scored_avg":   away_scored,
         "home_goals_conceded_avg": home_conceded,
         "away_goals_conceded_avg": away_conceded,
+        # Différence de buts (buts marqués - buts encaissés)
+        "home_goal_diff_avg": home_scored - home_conceded,
+        "away_goal_diff_avg": away_scored - away_conceded,
+        # Points de saison cumulés
+        "home_season_pts": _calc_season_pts(home_hist, season),
+        "away_season_pts": _calc_season_pts(away_hist, season),
+        # Forme relative entre les deux équipes
+        "strength_diff": home_form - away_form,
+        # Attaque de l'équipe X face à la défense de l'équipe Y
+        "attack_vs_defense_h": home_scored - away_conceded,
+        "attack_vs_defense_a": away_scored - home_conceded,
         "h2h_home_wins": h2h_hw,
-        "h2h_draws": h2h_d,
+        "h2h_draws":     h2h_d,
         "h2h_away_wins": h2h_aw,
     }
 
@@ -106,11 +146,11 @@ def _update_history(team_history, row):
     """Ajoute le match terminé dans l'historique des deux équipes."""
     home = row["HomeTeam"]
     away = row["AwayTeam"]
-    ftr = row["FTR"]
+    ftr  = row["FTR"]
     fthg = int(float(row["FTHG"]))
     ftag = int(float(row["FTAG"]))
     season = row["Season"]
-    date = row["Date"]
+    date   = row["Date"]
 
     if ftr == "H":
         home_result, away_result = "W", "L"
@@ -118,7 +158,7 @@ def _update_history(team_history, row):
     elif ftr == "D":
         home_result = away_result = "D"
         home_pts = away_pts = 1
-    else:  # "A"
+    else:
         home_result, away_result = "L", "W"
         home_pts, away_pts = 0, 3
 
@@ -143,15 +183,9 @@ def compute_features(df):
     Itère chronologiquement: pour chaque match, les features sont calculées
     depuis l'historique disponible AVANT ce match, puis l'historique est mis
     à jour avec le résultat du match.
-
-    Args:
-        df: DataFrame avec colonnes Date, Season, HomeTeam, AwayTeam, FTHG, FTAG, FTR
-
-    Returns:
-        DataFrame enrichi avec les features et la colonne 'target' (H=0, D=1, A=2)
     """
     df = df.copy().reset_index(drop=True)
-    team_history = defaultdict(list)
+    team_history  = defaultdict(list)
     feature_records = []
 
     total = len(df)
@@ -162,45 +196,24 @@ def compute_features(df):
             print(f"  {idx}/{total} matchs traités...")
 
         row = df.iloc[idx]
-
-        # Extraire les features depuis l'historique ACTUEL (avant ce match)
         record = _extract_features(row["HomeTeam"], row["AwayTeam"], row["Season"], team_history)
         feature_records.append(record)
-
-        # Mettre à jour l'historique APRÈS le calcul — jamais avant
         _update_history(team_history, row)
 
-    # Fusionner les features avec le DataFrame original
     features_df = pd.DataFrame(feature_records, index=df.index)
     result = pd.concat([df, features_df], axis=1)
-
-    # Encoder la variable cible : H=0, D=1, A=2
     result["target"] = result["FTR"].map({"H": 0, "D": 1, "A": 2})
-
-    # Supprimer les lignes avec valeurs manquantes
     result.dropna(subset=FEATURE_COLS + ["target"], inplace=True)
     result.reset_index(drop=True, inplace=True)
 
-    print(f"Features calculées pour {len(result)} matchs.")
+    print(f"Features calculées pour {len(result)} matchs ({len(FEATURE_COLS)} features).")
     return result
 
 
 def compute_match_features(home_team, away_team, df):
     """
     Calcule les features pour un match hypothétique (utilisé dans l'app Streamlit).
-
     Utilise l'intégralité de l'historique disponible comme contexte passé.
-
-    Args:
-        home_team: Nom de l'équipe domicile
-        away_team: Nom de l'équipe extérieure
-        df: DataFrame complet des matchs historiques
-
-    Returns:
-        dict avec les features du match (clés = FEATURE_COLS)
-
-    Raises:
-        ValueError: Si une équipe n'apparaît pas dans les données
     """
     all_teams = set(df["HomeTeam"].unique()) | set(df["AwayTeam"].unique())
 
@@ -209,20 +222,17 @@ def compute_match_features(home_team, away_team, df):
     if away_team not in all_teams:
         raise ValueError(f"Équipe introuvable dans les données : '{away_team}'")
 
-    # Construire l'historique complet de toutes les équipes
     team_history = defaultdict(list)
     for _, row in df.iterrows():
         _update_history(team_history, row)
 
-    # Pour les taux de victoire, on utilise la saison la plus récente
     latest_season = df.sort_values("Date")["Season"].iloc[-1]
-
     return _extract_features(home_team, away_team, latest_season, team_history)
 
 
 def get_team_recent_matches(team, df, n=5):
-    """Retourne les n derniers matchs d'une équipe (pour l'affichage dans l'app)."""
-    mask = (df["HomeTeam"] == team) | (df["AwayTeam"] == team)
+    """Retourne les n derniers matchs d'une équipe."""
+    mask   = (df["HomeTeam"] == team) | (df["AwayTeam"] == team)
     recent = df[mask].tail(n).copy()
     return recent[["Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR"]]
 
@@ -235,13 +245,10 @@ if __name__ == "__main__":
     df_feat = compute_features(df)
 
     print(f"\nDataset avec features : {df_feat.shape}")
+    print(f"Nombre de features : {len(FEATURE_COLS)}")
     print("\nStatistiques descriptives :")
     print(df_feat[FEATURE_COLS].describe().round(3))
 
-    print("\nValeurs manquantes :")
     missing = df_feat[FEATURE_COLS].isnull().sum()
-    print(missing[missing > 0] if missing.any() else "  Aucune valeur manquante.")
-
-    print("\nDistribution de la variable cible :")
-    dist = df_feat["FTR"].value_counts(normalize=True).round(3)
-    print(dist)
+    print("\nValeurs manquantes :")
+    print(missing[missing > 0] if missing.any() else "  Aucune.")
