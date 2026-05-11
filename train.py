@@ -61,7 +61,17 @@ def train_models(X_train, y_train):
     """Entraîne les trois modèles et retourne un dict {nom: modèle}."""
     models = {
         "Logistic Regression": LogisticRegression(max_iter=1000, random_state=42),
-        "Random Forest": RandomForestClassifier(n_estimators=200, random_state=42),
+        # Random Forest : paramètres anti-overfitting
+        #   max_depth=8        → arbres bornés (défaut=None = infini → mémorisation)
+        #   min_samples_leaf=15 → feuille = au moins 15 matchs
+        #   min_samples_split=30→ au moins 30 matchs pour créer un nœud
+        "Random Forest": RandomForestClassifier(
+            n_estimators=300,
+            max_depth=8,
+            min_samples_leaf=15,
+            min_samples_split=30,
+            random_state=42,
+        ),
         # XGBoost : paramètres anti-overfitting
         #   max_depth=3      → arbres peu profonds, moins de mémorisation
         #   learning_rate=0.05 → apprentissage lent, meilleure généralisation

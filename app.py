@@ -562,20 +562,21 @@ with tab_data:
     df_table = pd.DataFrame(table_rows).set_index("Saison")
 
     def color_split(val):
+        # Fond coloré + texte blanc : lisible en dark mode et light mode
         if val == "Train":
-            return "background-color:#dbeafe; color:#1e40af; font-weight:600"
+            return "background-color:#3b82f6; color:white; font-weight:600"
         if val == "Test":
-            return "background-color:#dcfce7; color:#166534; font-weight:600"
-        return "background-color:#fef9c3; color:#854d0e; font-weight:600"
+            return "background-color:#16a34a; color:white; font-weight:600"
+        return "background-color:#d97706; color:white; font-weight:600"
 
     def color_acc(val):
         if not isinstance(val, float):
             return ""
         if val >= 60:
-            return "color:#166534; font-weight:600"
+            return "background-color:#16a34a; color:white; font-weight:600"
         if val >= 50:
-            return "color:#1a1a2e"
-        return "color:#dc2626"
+            return "font-weight:500"
+        return "background-color:#dc2626; color:white; font-weight:600"
 
     styled = (
         df_table.style
@@ -585,8 +586,8 @@ with tab_data:
     )
     st.dataframe(styled, use_container_width=True)
     st.caption(
-        "Vert fonce = accuracy >= 60%  ·  Noir = >= 50%  ·  Rouge = < 50%  "
-        "·  Les saisons Train ont un biais (modele a appris sur ces donnees)"
+        "Fond vert = accuracy >= 60%  ·  Normal = >= 50%  ·  Fond rouge = < 50%  "
+        "·  Les saisons Train ont un biais (modele a vu ces donnees)"
     )
 
     # Graphique accuracy par saison
